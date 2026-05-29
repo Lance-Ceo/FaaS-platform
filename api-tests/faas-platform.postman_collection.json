@@ -1,0 +1,314 @@
+{
+  "info": {
+    "name": "FaaS Platform API",
+    "description": "Complete API test collection for the FaaS Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "faas-platform-v1"
+  },
+  "variable": [
+    { "key": "baseUrl",      "value": "http://localhost/api/v1" },
+    { "key": "accessToken",  "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "functionId",   "value": "" },
+    { "key": "apiKeyId",     "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const d = pm.response.json().data;",
+            "pm.collectionVariables.set('accessToken', d.accessToken);",
+            "pm.collectionVariables.set('refreshToken', d.refreshToken);"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/register",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"test@example.com\",\n  \"username\": \"testuser\",\n  \"password\": \"Test@123456\"\n}" }
+          }
+        },
+        {
+          "name": "Login (Admin)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.collectionVariables.set('accessToken', d.accessToken);",
+            "pm.collectionVariables.set('refreshToken', d.refreshToken);",
+            "pm.test('Has tokens', () => { pm.expect(d.accessToken).to.be.a('string'); });"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@faas.local\",\n  \"password\": \"Admin@123456\"\n}" }
+          }
+        },
+        {
+          "name": "Get Current User",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has user', () => pm.expect(pm.response.json().data.email).to.exist);"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/me",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.collectionVariables.set('accessToken', d.accessToken);",
+            "pm.collectionVariables.set('refreshToken', d.refreshToken);"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/refresh",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          }
+        },
+        {
+          "name": "Create API Key",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const d = pm.response.json().data;",
+            "pm.collectionVariables.set('apiKeyId', d.id);",
+            "pm.test('Has key', () => pm.expect(d.key).to.be.a('string'));"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/api-keys",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Test API Key\"\n}" }
+          }
+        },
+        {
+          "name": "List API Keys",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/api-keys",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/logout",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Functions",
+      "item": [
+        {
+          "name": "List Functions",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "pm.test('Has data array', () => pm.expect(pm.response.json().data).to.be.an('array'));"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/functions?page=1&limit=10", "query": [
+              { "key": "page", "value": "1" },
+              { "key": "limit", "value": "10" }
+            ]},
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Create Function (Node.js)",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "const d = pm.response.json().data;",
+            "pm.collectionVariables.set('functionId', d.id);",
+            "pm.test('Has id', () => pm.expect(d.id).to.be.a('string'));"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/functions",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"test-function\",\n  \"description\": \"A test function\",\n  \"runtime\": \"NODE18\",\n  \"memory\": 128,\n  \"timeout\": 30,\n  \"replicas\": 1,\n  \"sourceCode\": \"module.exports = async (event, context) => context.status(200).succeed({ ok: true });\",\n  \"envVars\": { \"MY_VAR\": \"hello\" },\n  \"triggers\": [\"HTTP\"]\n}" }
+          }
+        },
+        {
+          "name": "Get Function",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/functions/{{functionId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Update Function",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/functions/{{functionId}}",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"description\": \"Updated description\",\n  \"memory\": 256\n}" }
+          }
+        },
+        {
+          "name": "Deploy Function",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 202', () => pm.response.to.have.status(202));"
+          ]}}],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/functions/{{functionId}}/deploy",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Get Function Logs",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/functions/{{functionId}}/logs",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Get Function Deployments",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/functions/{{functionId}}/deployments",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Scale Function",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/functions/{{functionId}}/scale",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"replicas\": 3\n}" }
+          }
+        },
+        {
+          "name": "Invoke Function",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/functions/{{functionId}}/invoke",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type",   "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"FaaS Platform\"\n}" }
+          }
+        },
+        {
+          "name": "Delete Function",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));"
+          ]}}],
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/functions/{{functionId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Metrics",
+      "item": [
+        {
+          "name": "Platform Metrics (Admin)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/metrics/platform",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Function Metrics",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/metrics/functions/{{functionId}}",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "Prometheus Scrape",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/metrics/prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "List All Users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/users",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "List All Functions",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/functions",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        },
+        {
+          "name": "List All Deployments",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/admin/deployments",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "pm.test('Status healthy', () => pm.expect(pm.response.json().status).to.equal('healthy'));"
+          ]}}],
+          "request": {
+            "method": "GET",
+            "url": "http://localhost/health"
+          }
+        }
+      ]
+    }
+  ]
+}

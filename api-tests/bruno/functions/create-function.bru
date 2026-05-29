@@ -1,0 +1,45 @@
+meta {
+  name: Create Function
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/functions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "test-function",
+    "description": "A test function via Bruno",
+    "runtime": "NODE18",
+    "memory": 128,
+    "timeout": 30,
+    "replicas": 1,
+    "sourceCode": "module.exports = async (event, context) => context.status(200).succeed({ ok: true, ts: Date.now() });",
+    "envVars": { "MY_VAR": "hello" },
+    "triggers": ["HTTP"]
+  }
+}
+
+script:post-response {
+  const data = res.getBody().data;
+  if (data && data.id) {
+    bru.setVar("functionId", data.id);
+  }
+}
+
+tests {
+  test("Status 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+  test("Has function id", function() {
+    expect(res.getBody().data.id).to.be.a("string");
+  });
+}

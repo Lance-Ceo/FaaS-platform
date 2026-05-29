@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared-types" },
+    { "path": "./packages/ui-components" },
+    { "path": "./apps/api-gateway" }
+  ],
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true
+  }
+}

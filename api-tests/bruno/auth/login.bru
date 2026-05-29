@@ -1,0 +1,33 @@
+meta {
+  name: Login (Admin)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "admin@faas.local",
+    "password": "Admin@123456"
+  }
+}
+
+script:post-response {
+  const data = res.getBody().data;
+  bru.setVar("accessToken", data.accessToken);
+  bru.setVar("refreshToken", data.refreshToken);
+}
+
+tests {
+  test("Status 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Has access token", function() {
+    expect(res.getBody().data.accessToken).to.be.a("string");
+  });
+}

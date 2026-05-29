@@ -1,0 +1,239 @@
+# ─── Networks ─────────────────────────────────────────────────
+networks:
+  faas-net:
+    driver: bridge
+  faas-fn:
+    driver: bridge
+
+# ─── Volumes ──────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  registry_data:
+
+services:
+
+  # ─── NGINX Reverse Proxy ────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: faas-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api-gateway
+      - frontend
+    networks:
+      - faas-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Frontend ───────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: faas-frontend
+    networks:
+      - faas-net
+    restart: unless-stopped
+
+  # ─── API Gateway ────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./apps/api-gateway
+      dockerfile: Dockerfile
+    container_name: faas-api-gateway
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=postgresql://faas:faas_secret@postgres:5432/faasdb
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production-jwt-secret-32chars}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-me-refresh-secret-32chars}
+      - OPENFAAS_GATEWAY=http://function-runner:8080
+      - OPENFAAS_USERNAME=admin
+      - OPENFAAS_PASSWORD=admin
+      - DOCKER_REGISTRY=registry:5000
+      - CORS_ORIGINS=http://localhost,http://localhost:3000
+      - PROMETHEUS_ENABLED=true
+      - BUILD_DIR=/tmp/faas-builds
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - faas-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─── Function Runner (replaces OpenFaaS — Docker Hub only) ──
+  function-runner:
+    build:
+      context: ./apps/function-runner
+      dockerfile: Dockerfile
+    container_name: faas-function-runner
+    environment:
+      - PORT=8080
+      - FUNCTION_NETWORK=faas-platform_faas-fn
+      - FUNCTION_IMAGE_PREFIX=faas-fn
+      - FUNCTION_MEMORY_MB=128
+      - FUNCTION_TIMEOUT_MS=30000
+      - CONTAINER_PORT=3000
+      - LOG_LEVEL=info
+      - REGISTRY_FILE=/tmp/faas-registry.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/faas-builds:/tmp/faas-builds
+      - /tmp/faas-registry:/tmp
+    networks:
+      - faas-net
+      - faas-fn
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ─── Function Manager (build worker) ────────────────────────
+  function-manager:
+    build:
+      context: .
+      dockerfile: apps/function-manager/Dockerfile
+    container_name: faas-function-manager
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - DOCKER_REGISTRY=registry:5000
+      - FUNCTION_IMAGE_PREFIX=faas-fn
+      - BUILD_DIR=/tmp/faas-builds
+      - LOG_LEVEL=info
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - faas-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/faas-builds:/tmp/faas-builds
+    restart: unless-stopped
+
+  # ─── PostgreSQL ─────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: faas-postgres
+    environment:
+      POSTGRES_USER: faas
+      POSTGRES_PASSWORD: faas_secret
+      POSTGRES_DB: faasdb
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - faas-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faas -d faasdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ──────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: faas-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - faas-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Docker Registry ────────────────────────────────────────
+  registry:
+    image: registry:2
+    container_name: faas-registry
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry_data:/var/lib/registry
+    networks:
+      - faas-net
+    restart: unless-stopped
+
+  # ─── NATS (event bus) ───────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    container_name: faas-nats
+    command: ["--jetstream", "--store_dir=/data", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks:
+      - faas-net
+    restart: unless-stopped
+
+  # ─── Prometheus ─────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: faas-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infrastructure/docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/docker/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - faas-net
+    restart: unless-stopped
+
+  # ─── Grafana ────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: faas-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3003
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3003:3000"
+    networks:
+      - faas-net
+    depends_on:
+      - prometheus
+    restart: unless-stopped

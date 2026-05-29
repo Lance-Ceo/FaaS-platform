@@ -1,0 +1,187 @@
+// Prisma Schema for FaaS Platform
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ───────────────────────────────────────────────────
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  username     String    @unique
+  passwordHash String
+  role         UserRole  @default(DEVELOPER)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  functions    Function[]
+  apiKeys      ApiKey[]
+  deployments  Deployment[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  DEVELOPER
+}
+
+// ─── Refresh Tokens ──────────────────────────────────────────
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  isRevoked Boolean  @default(false)
+
+  @@map("refresh_tokens")
+}
+
+// ─── API Keys ─────────────────────────────────────────────────
+model ApiKey {
+  id         String    @id @default(uuid())
+  name       String
+  keyHash    String    @unique
+  keyPrefix  String    // first 8 chars for display
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  isActive   Boolean   @default(true)
+
+  @@map("api_keys")
+}
+
+// ─── Functions ────────────────────────────────────────────────
+model Function {
+  id           String         @id @default(uuid())
+  name         String
+  description  String?
+  runtime      Runtime
+  status       FunctionStatus @default(PENDING)
+  endpoint     String?
+  memory       Int            @default(128)   // MB
+  timeout      Int            @default(30)    // seconds
+  replicas     Int            @default(1)
+  minReplicas  Int            @default(1)
+  maxReplicas  Int            @default(5)
+  envVars      Json           @default("{}")
+  labels       Json           @default("{}")
+  triggers     TriggerType[]  @default([HTTP])
+  sourceCode   String?        @db.Text
+  imageTag     String?
+  version      Int            @default(1)
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deployedAt   DateTime?
+
+  deployments  Deployment[]
+  logs         FunctionLog[]
+  metrics      FunctionMetric[]
+
+  @@unique([name, userId])
+  @@map("functions")
+}
+
+enum Runtime {
+  NODE18
+  PYTHON3
+  GO119
+}
+
+enum FunctionStatus {
+  PENDING
+  BUILDING
+  DEPLOYING
+  READY
+  ERROR
+  STOPPED
+}
+
+enum TriggerType {
+  HTTP
+  CRON
+  QUEUE
+  WEBHOOK
+}
+
+// ─── Deployments ──────────────────────────────────────────────
+model Deployment {
+  id           String           @id @default(uuid())
+  functionId   String
+  function     Function         @relation(fields: [functionId], references: [id], onDelete: Cascade)
+  version      Int
+  status       DeploymentStatus @default(QUEUED)
+  logs         String[]
+  imageTag     String?
+  error        String?
+  startedAt    DateTime         @default(now())
+  completedAt  DateTime?
+  triggeredBy  String
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+
+  @@map("deployments")
+}
+
+enum DeploymentStatus {
+  QUEUED
+  BUILDING
+  PUSHING
+  DEPLOYING
+  SUCCESS
+  FAILED
+  ROLLED_BACK
+}
+
+// ─── Function Logs ────────────────────────────────────────────
+model FunctionLog {
+  id          String      @id @default(uuid())
+  functionId  String
+  function    Function    @relation(fields: [functionId], references: [id], onDelete: Cascade)
+  level       LogLevel    @default(INFO)
+  message     String      @db.Text
+  timestamp   DateTime    @default(now())
+  requestId   String?
+  duration    Int?        // ms
+  statusCode  Int?
+
+  @@index([functionId, timestamp])
+  @@map("function_logs")
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+// ─── Function Metrics ─────────────────────────────────────────
+model FunctionMetric {
+  id           String   @id @default(uuid())
+  functionId   String
+  function     Function @relation(fields: [functionId], references: [id], onDelete: Cascade)
+  invocations  Int      @default(0)
+  errors       Int      @default(0)
+  avgDuration  Float    @default(0)
+  p95Duration  Float    @default(0)
+  p99Duration  Float    @default(0)
+  cpuUsage     Float    @default(0)
+  memoryUsage  Float    @default(0)
+  timestamp    DateTime @default(now())
+
+  @@index([functionId, timestamp])
+  @@map("function_metrics")
+}

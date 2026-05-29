@@ -1,0 +1,28 @@
+meta {
+  name: List Functions
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/functions
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+params:query {
+  page: 1
+  limit: 20
+}
+
+tests {
+  test("Status 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Returns array", function() {
+    expect(res.getBody().data).to.be.an("array");
+  });
+}

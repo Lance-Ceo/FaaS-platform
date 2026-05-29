@@ -1,0 +1,195 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/faas-platform
+
+jobs:
+  # ─── Lint & Type Check ──────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared types
+        run: npm run build --workspace=packages/shared-types
+
+      - name: Type check API Gateway
+        run: cd apps/api-gateway && npx tsc --noEmit
+
+      - name: Type check Frontend
+        run: cd apps/frontend && npx tsc --noEmit
+
+  # ─── Test ───────────────────────────────────────────────────
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: faas
+          POSTGRES_PASSWORD: faas_test
+          POSTGRES_DB: faasdb_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared types
+        run: npm run build --workspace=packages/shared-types
+
+      - name: Generate Prisma client
+        run: cd apps/api-gateway && npx prisma generate
+        env:
+          DATABASE_URL: postgresql://faas:faas_test@localhost:5432/faasdb_test
+
+      - name: Run migrations
+        run: cd apps/api-gateway && npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://faas:faas_test@localhost:5432/faasdb_test
+
+      - name: Run API tests
+        run: npm test --workspace=apps/api-gateway --if-present
+        env:
+          DATABASE_URL: postgresql://faas:faas_test@localhost:5432/faasdb_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-jwt-secret-for-ci
+          JWT_REFRESH_SECRET: test-refresh-secret-for-ci
+          NODE_ENV: test
+
+  # ─── Build Docker Images ────────────────────────────────────
+  build:
+    name: Build Images
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (API Gateway)
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api-gateway
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push API Gateway
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/api-gateway/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata (Frontend)
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Deploy (main branch only) ──────────────────────────────
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/faas-platform
+            git pull origin main
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker compose exec -T api-gateway npx prisma migrate deploy
+            docker image prune -f
+            echo "✅ Deployment complete"

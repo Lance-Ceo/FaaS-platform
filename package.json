@@ -1,0 +1,31 @@
+{
+  "name": "faas-platform",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:frontend\" \"npm run dev:manager\"",
+    "dev:api": "npm run dev --workspace=apps/api-gateway",
+    "dev:frontend": "npm run dev --workspace=apps/frontend",
+    "dev:manager": "npm run dev --workspace=apps/function-manager",
+    "build": "npm run build --workspace=packages/shared-types && npm run build --workspace=packages/ui-components && npm run build --workspace=apps/api-gateway && npm run build --workspace=apps/frontend",
+    "test": "npm run test --workspace=apps/api-gateway",
+    "lint": "npm run lint --workspace=apps/api-gateway && npm run lint --workspace=apps/frontend",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose build",
+    "docker:logs": "docker compose logs -f",
+    "db:migrate": "npm run db:migrate --workspace=apps/api-gateway",
+    "db:seed": "npm run db:seed --workspace=apps/api-gateway",
+    "db:generate": "npm run db:generate --workspace=apps/api-gateway",
+    "setup": "powershell -ExecutionPolicy Bypass -File scripts/setup.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}

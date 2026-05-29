@@ -1,0 +1,28 @@
+# stack.yml — Reference configuration for the FaaS Function Runner
+#
+# This file documents the sample functions.
+# The function-runner service builds and runs these automatically
+# when deployed via the API Gateway.
+#
+# To deploy manually via the API:
+#   POST /api/v1/functions  (create)
+#   POST /api/v1/functions/:id/deploy  (deploy)
+
+functions:
+  hello-world:
+    runtime: NODE18
+    memory: 128
+    timeout: 30
+    handler: ./functions/hello-world/handler.js
+
+  image-resizer:
+    runtime: PYTHON3
+    memory: 256
+    timeout: 60
+    handler: ./functions/image-resizer/handler.py
+
+  data-processor:
+    runtime: GO119
+    memory: 64
+    timeout: 15
+    handler: ./functions/data-processor/handler.go

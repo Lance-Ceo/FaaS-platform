@@ -1,0 +1,24 @@
+meta {
+  name: Deploy Function
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/functions/{{functionId}}/deploy
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{accessToken}}
+}
+
+tests {
+  test("Status 202 (Accepted)", function() {
+    expect(res.getStatus()).to.equal(202);
+  });
+  test("Deployment queued", function() {
+    expect(res.getBody().message).to.include("queued");
+  });
+}

@@ -1,0 +1,82 @@
+groups:
+  - name: faas_platform
+    interval: 30s
+    rules:
+
+      # ─── API Gateway ──────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate (> 5%)"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 latency (> 2s)"
+          description: "p95 latency is {{ $value }}s."
+
+      # ─── Functions ────────────────────────────────────────────
+      - alert: FunctionHighErrorRate
+        expr: |
+          sum by (function_name) (
+            rate(faas_function_invocations_total{status="error"}[5m])
+          )
+          / sum by (function_name) (
+            rate(faas_function_invocations_total[5m])
+          ) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Function {{ $labels.function_name }} has high error rate"
+          description: "Error rate is {{ $value | humanizePercentage }}."
+
+      - alert: NoActiveFunctions
+        expr: faas_active_functions == 0
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "No active functions deployed"
+          description: "There are currently no READY functions on the platform."
+
+      # ─── Infrastructure ───────────────────────────────────────
+      - alert: APIGatewayDown
+        expr: up{job="faas-api-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FaaS API Gateway is down"
+          description: "The API Gateway has been unreachable for more than 1 minute."
+
+      - alert: HighMemoryUsage
+        expr: |
+          faas_process_heap_used_bytes / faas_process_heap_total_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API Gateway heap usage > 90%"
+          description: "Heap usage is {{ $value | humanizePercentage }}."
+
+      - alert: DeploymentQueueBacklog
+        expr: faas_deployment_queue_size > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deployment queue backlog"
+          description: "{{ $value }} deployments are queued."
